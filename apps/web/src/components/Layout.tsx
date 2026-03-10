@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/auth'
+import { useSystemStore } from '../stores/system'
 import { useThemeStore } from '../stores/theme'
+import { systemApi } from '../api/system'
 import {
   LayoutDashboard, LogOut, Menu, X, Network, Users, Settings,
   Key, ShoppingCart, FileText, Code, Package, Ticket, Activity,
@@ -16,10 +18,21 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const { t, i18n } = useTranslation()
   const { user, logout } = useAuthStore()
+  const { mode, setMode } = useSystemStore()
   const { theme, toggleTheme } = useThemeStore()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [langMenuOpen, setLangMenuOpen] = useState(false)
+
+  useEffect(() => {
+    systemApi.getInfo()
+      .then((info) => {
+        setMode(info.mode)
+      })
+      .catch((err) => {
+        console.error('Failed to fetch system info:', err)
+      })
+  }, [setMode])
 
   const navItems = [
     { path: '/', label: t('dashboard.title'), icon: LayoutDashboard },
@@ -33,7 +46,7 @@ export default function Layout({ children }: LayoutProps) {
     { path: '/license', label: t('license.title'), icon: Key },
   ]
 
-  const adminNavItems = user?.role === 'admin' ? [
+  const adminNavItems = user?.role === 'admin' && mode === 'admin' ? [
     { path: '/users', label: t('users.title'), icon: Users },
     { path: '/packages', label: t('packages.title'), icon: Package },
     { path: '/coupons', label: t('coupons.title'), icon: Ticket },

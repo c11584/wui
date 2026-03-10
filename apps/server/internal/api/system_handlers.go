@@ -8,10 +8,16 @@ import (
 )
 
 func (s *Server) handleGetSystemInfo(c *gin.Context) {
+	mode := "admin"
+	if s.config.IsAgentMode() {
+		mode = "agent"
+	}
+
 	c.JSON(http.StatusOK, SuccessResponse(gin.H{
 		"version": "0.1.0",
 		"os":      runtime.GOOS,
 		"arch":    runtime.GOARCH,
+		"mode":    mode,
 	}))
 }
 

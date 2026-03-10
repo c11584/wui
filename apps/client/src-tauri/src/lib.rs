@@ -7,6 +7,7 @@ mod tray;
 
 use std::sync::Arc;
 use tauri::Manager;
+use tauri_plugin_autostart::ManagerExt;
 use tokio::sync::RwLock;
 use crate::config::AppConfig;
 use crate::core::CoreManager;
@@ -34,7 +35,7 @@ async fn set_proxy_mode(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     let mut core = state.core_manager.write().await;
-    core.set_mode(mode.clone()).await.map_err(|e| e.to_string())?;
+    core.set_mode(mode).await.map_err(|e| e.to_string())?;
     
     let mut proxy = state.system_proxy.write().await;
     if mode == ProxyMode::Direct {
@@ -142,6 +143,37 @@ async fn get_traffic_stats(
     core.get_traffic().await.map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn test_connection_latency(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<u64, String> {
+    let core = state.core_manager.read().await;
+    core.test_connection_latency().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn enable_autostart(app: tauri::AppHandle) -> Result<(), String> {
+    app.autolaunch().enable().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn disable_autostart(app: tauri::AppHandle) -> Result<(), String> {
+    app.autolaunch().disable().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn update_all_subscriptions(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<usize, String> {
+    let mut sub = state.subscription_manager.write().await;
+    sub.update_all().await.map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -158,7 +190,7 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle();
             
-            match setup_tray(&app.handle()) {
+            match setup_tray(app.handle()) {
                 Ok(_tray) => {
                     #[cfg(debug_assertions)]
                     eprintln!("Tray icon setup successful");
@@ -201,6 +233,11 @@ pub fn run() {
             start_proxy,
             stop_proxy,
             get_traffic_stats,
+            test_connection_latency,
+            enable_autostart,
+            disable_autostart,
+            is_autostart_enabled,
+            update_all_subscriptions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

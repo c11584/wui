@@ -22,6 +22,7 @@ type PanelConfig struct {
 	Port     int    `json:"port"`
 	Username string `json:"username"`
 	Password string `json:"password"`
+	Mode     string `json:"mode"`
 }
 
 type XrayConfig struct {
@@ -54,5 +55,17 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	if cfg.Panel.Mode == "" {
+		cfg.Panel.Mode = "admin"
+	}
+
 	return &cfg, nil
+}
+
+func (c *Config) IsAdminMode() bool {
+	return c.Panel.Mode != "agent"
+}
+
+func (c *Config) IsAgentMode() bool {
+	return c.Panel.Mode == "agent"
 }

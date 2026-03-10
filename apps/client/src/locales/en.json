@@ -1,0 +1,80 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "servers": "Servers",
+    "subscriptions": "Subscriptions",
+    "settings": "Settings"
+  },
+  "status": {
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "connecting": "Connecting..."
+  },
+  "actions": {
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "testLatency": "Test Latency",
+    "select": "Select",
+    "add": "Add",
+    "update": "Update",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "mode": {
+    "title": "Proxy Mode",
+    "global": "Global",
+    "rule": "Rule",
+    "direct": "Direct",
+    "tun": "TUN"
+  },
+  "server": {
+    "title": "Server List",
+    "name": "Name",
+    "address": "Address",
+    "port": "Port",
+    "protocol": "Protocol",
+    "latency": "Latency",
+    "noServers": "No servers available. Please add a subscription first."
+  },
+  "subscription": {
+    "title": "Subscription List",
+    "name": "Name",
+    "url": "URL",
+    "serverCount": "Server Count",
+    "lastUpdate": "Last Update",
+    "addTitle": "Add Subscription",
+    "addSuccess": "Subscription added successfully!",
+    "addFailed": "Failed to add subscription: {{error}}",
+    "updateSuccess": "Subscription updated successfully!",
+    "updateFailed": "Failed to update subscription: {{error}}",
+    "deleteSuccess": "Subscription deleted successfully!",
+    "deleteFailed": "Failed to delete subscription: {{error}}",
+    "namePlaceholder": "Subscription name",
+    "urlPlaceholder": "Subscription URL"
+  },
+  "settings": {
+    "title": "Settings",
+    "autoStart": "Auto-start on boot",
+    "autoConnect": "Auto-connect on startup",
+    "minimizeOnStart": "Minimize on startup",
+    "httpPort": "HTTP Proxy Port",
+    "socksPort": "SOCKS Proxy Port",
+    "language": "Language",
+    "autoUpdateSubscriptions": "Auto-update subscriptions",
+    "autoUpdateInterval": "Update interval (minutes)"
+  },
+  "traffic": {
+    "upload": "Upload",
+    "download": "Download",
+    "total": "Total"
+  },
+  "language": {
+    "zh": "Chinese",
+    "en": "English"
+  },
+  "app": {
+    "title": "WUI Client",
+    "loading": "Loading..."
+  }
+}

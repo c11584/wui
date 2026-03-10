@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/auth'
+import { useSystemStore } from './stores/system'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import ForgotPassword from './pages/ForgotPassword'
@@ -22,6 +23,7 @@ import Layout from './components/Layout'
 
 function App() {
   const { token, user } = useAuthStore()
+  const { mode } = useSystemStore()
 
   if (!token) {
     return (
@@ -47,7 +49,7 @@ function App() {
         <Route path="/api-tokens" element={<APITokens />} />
         <Route path="/traffic" element={<TrafficCharts />} />
         <Route path="/client-download" element={<ClientDownload />} />
-        {user?.role === 'admin' && (
+        {user?.role === 'admin' && mode === 'admin' && (
           <>
             <Route path="/users" element={<Users />} />
             <Route path="/packages" element={<Packages />} />

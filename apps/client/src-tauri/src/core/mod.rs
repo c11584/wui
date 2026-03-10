@@ -1,17 +1,21 @@
 use crate::models::{ProxyMode, ProxyStatus};
 use std::process::{Child, Command};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::AppHandle;
 use tokio::fs;
 
+const CLASH_API_URL: &str = "http://127.0.0.1:9090";
+
 pub struct CoreManager {
+    #[allow(dead_code)]
     app_handle: AppHandle,
     process: Option<Child>,
     mode: ProxyMode,
     current_server: Option<String>,
     current_server_name: Option<String>,
-    upload: u64,
-    download: u64,
+    upload: AtomicU64,
+    download: AtomicU64,
 }
 
 impl CoreManager {
@@ -22,20 +26,22 @@ impl CoreManager {
             mode: ProxyMode::default(),
             current_server: None,
             current_server_name: None,
-            upload: 0,
-            download: 0,
+            upload: AtomicU64::new(0),
+            download: AtomicU64::new(0),
         }
     }
     
     pub fn get_status(&self) -> ProxyStatus {
+        let connected = self.current_server.is_some() && self.process.is_some();
+        
         ProxyStatus {
-            connected: self.process.is_some(),
-            mode: self.mode.clone(),
+            connected,
+            mode: self.mode,
             current_server: self.current_server.clone(),
             current_server_name: self.current_server_name.clone(),
             latency: None,
-            upload: self.upload,
-            download: self.download,
+            upload: self.upload.load(Ordering::Relaxed),
+            download: self.download.load(Ordering::Relaxed),
         }
     }
     
@@ -58,6 +64,10 @@ impl CoreManager {
     pub async fn start(&mut self) -> anyhow::Result<()> {
         if self.process.is_some() {
             return Ok(());
+        }
+        
+        if self.current_server.is_none() {
+            return Err(anyhow::anyhow!("No server selected. Please add a subscription and select a server first."));
         }
         
         let config = self.generate_config().await?;
@@ -84,6 +94,13 @@ impl CoreManager {
         
         self.process = Some(child);
         
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        
+        if !self.check_proxy_alive().await {
+            self.process = None;
+            return Err(anyhow::anyhow!("Failed to start proxy core. Please check if the server configuration is valid."));
+        }
+        
         Ok(())
     }
     
@@ -101,7 +118,85 @@ impl CoreManager {
     }
     
     pub async fn get_traffic(&self) -> anyhow::Result<(u64, u64)> {
-        Ok((self.upload, self.download))
+        if self.process.is_some() && self.mode != ProxyMode::Direct {
+            if let Ok(response) = reqwest::Client::new()
+                .get(format!("{}/traffic", CLASH_API_URL))
+                .timeout(std::time::Duration::from_secs(2))
+                .send()
+                .await
+            {
+                if let Ok(text) = response.text().await {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                        let up = json.get("up").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let down = json.get("down").and_then(|v| v.as_u64()).unwrap_or(0);
+                        self.upload.store(up, Ordering::Relaxed);
+                        self.download.store(down, Ordering::Relaxed);
+                    }
+                }
+            }
+        }
+        Ok((self.upload.load(Ordering::Relaxed), self.download.load(Ordering::Relaxed)))
+    }
+    
+    pub async fn test_connection_latency(&self) -> anyhow::Result<u64> {
+        if self.process.is_none() || self.mode == ProxyMode::Direct {
+            return Err(anyhow::anyhow!("Proxy not running or in direct mode"));
+        }
+        
+        let start = std::time::Instant::now();
+        
+        let proxy_url = if self.mode == ProxyMode::Tun {
+            None
+        } else {
+            Some(reqwest::Proxy::http("http://127.0.0.1:7890")?)
+        };
+        
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5));
+        
+        let client = if let Some(proxy) = proxy_url {
+            client.proxy(proxy).build()?
+        } else {
+            client.build()?
+        };
+        
+        let test_urls = [
+            "http://www.gstatic.com/generate_204",
+            "http://cp.cloudflare.com",
+            "http://connectivitycheck.gstatic.com/generate_204",
+        ];
+        
+        for url in &test_urls {
+            match client.get(*url).send().await {
+                Ok(response) => {
+                    if response.status().is_success() || response.status().as_u16() == 204 {
+                        return Ok(start.elapsed().as_millis() as u64);
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+        
+        Ok(9999)
+    }
+    
+    async fn check_proxy_alive(&self) -> bool {
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        
+        if self.mode == ProxyMode::Direct {
+            return true;
+        }
+        
+        let check_port = |port: u16| async move {
+            tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+                .await
+                .is_ok()
+        };
+        
+        let http_alive = check_port(7890).await;
+        let socks_alive = check_port(7891).await;
+        
+        http_alive || socks_alive
     }
     
     async fn generate_config(&self) -> anyhow::Result<serde_json::Value> {
@@ -119,6 +214,12 @@ impl CoreManager {
         serde_json::json!({
             "log": {
                 "level": "info"
+            },
+            "experimental": {
+                "clash_api": {
+                    "external_controller": "127.0.0.1:9090",
+                    "secret": ""
+                }
             },
             "inbounds": [
                 {
@@ -166,6 +267,12 @@ impl CoreManager {
         serde_json::json!({
             "log": {
                 "level": "info"
+            },
+            "experimental": {
+                "clash_api": {
+                    "external_controller": "127.0.0.1:9090",
+                    "secret": ""
+                }
             },
             "inbounds": [
                 {
@@ -237,6 +344,12 @@ impl CoreManager {
         serde_json::json!({
             "log": {
                 "level": "info"
+            },
+            "experimental": {
+                "clash_api": {
+                    "external_controller": "127.0.0.1:9090",
+                    "secret": ""
+                }
             },
             "inbounds": [
                 {

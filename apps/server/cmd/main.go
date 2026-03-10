@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/your-org/wui/internal/api"
 	"github.com/your-org/wui/internal/config"
 	"github.com/your-org/wui/internal/models"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 

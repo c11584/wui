@@ -1,0 +1,80 @@
+{
+  "nav": {
+    "dashboard": "仪表板",
+    "servers": "节点",
+    "subscriptions": "订阅",
+    "settings": "设置"
+  },
+  "status": {
+    "connected": "已连接",
+    "disconnected": "未连接",
+    "connecting": "连接中..."
+  },
+  "actions": {
+    "connect": "连接",
+    "disconnect": "断开连接",
+    "testLatency": "测试延迟",
+    "select": "选择",
+    "add": "添加",
+    "update": "更新",
+    "delete": "删除",
+    "save": "保存",
+    "cancel": "取消"
+  },
+  "mode": {
+    "title": "代理模式",
+    "global": "全局",
+    "rule": "规则",
+    "direct": "直连",
+    "tun": "TUN"
+  },
+  "server": {
+    "title": "节点列表",
+    "name": "名称",
+    "address": "地址",
+    "port": "端口",
+    "protocol": "协议",
+    "latency": "延迟",
+    "noServers": "暂无节点，请先添加订阅。"
+  },
+  "subscription": {
+    "title": "订阅列表",
+    "name": "名称",
+    "url": "URL",
+    "serverCount": "节点数量",
+    "lastUpdate": "最后更新",
+    "addTitle": "添加订阅",
+    "addSuccess": "订阅添加成功！",
+    "addFailed": "添加订阅失败: {{error}}",
+    "updateSuccess": "订阅更新成功！",
+    "updateFailed": "更新订阅失败: {{error}}",
+    "deleteSuccess": "订阅删除成功！",
+    "deleteFailed": "删除订阅失败: {{error}}",
+    "namePlaceholder": "订阅名称",
+    "urlPlaceholder": "订阅地址"
+  },
+  "settings": {
+    "title": "设置",
+    "autoStart": "开机自启",
+    "autoConnect": "自动连接",
+    "minimizeOnStart": "启动时最小化",
+    "httpPort": "HTTP 代理端口",
+    "socksPort": "SOCKS 代理端口",
+    "language": "语言",
+    "autoUpdateSubscriptions": "自动更新订阅",
+    "autoUpdateInterval": "更新间隔 (分钟)"
+  },
+  "traffic": {
+    "upload": "上传",
+    "download": "下载",
+    "total": "总计"
+  },
+  "language": {
+    "zh": "中文",
+    "en": "English"
+  },
+  "app": {
+    "title": "WUI Client",
+    "loading": "加载中..."
+  }
+}

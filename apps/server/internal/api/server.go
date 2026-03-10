@@ -78,6 +78,17 @@ func (s *Server) setupRoutes() {
 		c.Next()
 	})
 
+	requireAdminMode := func(c *gin.Context) {
+		if s.config.IsAgentMode() {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "This feature is not available in agent mode",
+			})
+			return
+		}
+		c.Next()
+	}
+
 	api := s.router.Group("/api")
 	{
 		authGroup := api.Group("/auth")
@@ -95,10 +106,12 @@ func (s *Server) setupRoutes() {
 		{
 			protected.GET("/user", s.userHandlers.GetCurrentUser)
 			protected.PUT("/user", s.userHandlers.UpdateCurrentUser)
-			protected.GET("/subscription", s.handleGetSubscription)
 			protected.GET("/subscription/token", s.handleGetSubscriptionToken)
 
+			api.GET("/subscription", s.handleGetSubscription)
+
 			admin := protected.Group("")
+			admin.Use(requireAdminMode)
 			admin.Use(auth.RequireRole("admin"))
 			{
 				admin.GET("/users", s.userHandlers.ListUsers)
@@ -142,7 +155,6 @@ func (s *Server) setupRoutes() {
 
 			system := protected.Group("/system")
 			{
-				system.GET("/info", s.handleGetSystemInfo)
 				system.GET("/stats", s.handleGetSystemStats)
 				system.GET("/version", s.handleGetVersion)
 				system.GET("/check-update", s.handleCheckUpdate)
@@ -150,8 +162,11 @@ func (s *Server) setupRoutes() {
 				system.POST("/update/do", s.handleDoUpdate)
 			}
 
+			api.GET("/system/info", s.handleGetSystemInfo)
+
 			protected.POST("/license/activate", s.handleLicenseActivate)
 			protected.GET("/license/info", s.handleLicenseInfo)
+			protected.POST("/license/deactivate", s.handleLicenseDeactivate)
 
 			// API Tokens
 			apiTokens := protected.Group("/api-tokens")

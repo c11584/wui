@@ -7,6 +7,7 @@ use tokio::fs;
 use uuid::Uuid;
 
 pub struct SubscriptionManager {
+    #[allow(dead_code)]
     app_handle: AppHandle,
     subscriptions: HashMap<String, Subscription>,
     servers: HashMap<String, Server>,
@@ -84,13 +85,28 @@ impl SubscriptionManager {
     pub async fn add(&mut self, url: &str, name: &str) -> anyhow::Result<()> {
         let id = Uuid::new_v4().to_string();
         
-        let content = reqwest::get(url)
-            .await?
-            .text()
-            .await?;
+        let response = reqwest::get(url).await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch subscription: {}", e))?;
         
-        let decoded = base64_decode(&content);
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(anyhow::anyhow!(
+                "Subscription URL returned status {}. Expected 200, got {}",
+                status, error_text
+            ));
+        }
+        
+        let content = response.text().await
+            .map_err(|e| anyhow::anyhow!("Failed to read response text: {}", e))?;
+        
+        let decoded = base64_decode(&content)
+            .map_err(|e| anyhow::anyhow!("Invalid subscription format: {}", e))?;
         let servers = parse_subscription_content(&decoded, &id);
+        
+        if servers.is_empty() {
+            return Err(anyhow::anyhow!("No valid servers found in subscription. Please check if the subscription URL is correct and returns valid proxy URLs (vmess://, vless://, trojan://, ss://)"));
+        }
         
         let subscription = Subscription {
             id: id.clone(),
@@ -125,7 +141,8 @@ impl SubscriptionManager {
             .text()
             .await?;
         
-        let decoded = base64_decode(&content);
+        let decoded = base64_decode(&content)
+            .map_err(|e| anyhow::anyhow!("Failed to decode subscription: {}", e))?;
         let new_servers = parse_subscription_content(&decoded, id);
         
         for old_server in &sub.servers {
@@ -165,14 +182,34 @@ impl SubscriptionManager {
         let start = std::time::Instant::now();
         let addr = format!("{}:{}", server.address, server.port);
         
-        match tokio::net::TcpStream::connect(&addr).await {
-            Ok(_) => Ok(start.elapsed().as_millis() as u64),
-            Err(_) => Ok(9999),
+        let timeout_duration = std::time::Duration::from_secs(5);
+        
+        let result = tokio::time::timeout(
+            timeout_duration,
+            tokio::net::TcpStream::connect(&addr)
+        ).await;
+        
+        match result {
+            Ok(Ok(_)) => Ok(start.elapsed().as_millis() as u64),
+            Ok(Err(_)) | Err(_) => Ok(9999),
         }
     }
     
     pub fn get_server_config(&self, server_id: &str) -> Option<serde_json::Value> {
         self.servers.get(server_id).map(|s| s.config.clone())
+    }
+    
+    pub async fn update_all(&mut self) -> anyhow::Result<usize> {
+        let mut updated_count = 0;
+        let ids: Vec<String> = self.subscriptions.keys().cloned().collect();
+        
+        for id in ids {
+            if self.update(&id).await.is_ok() {
+                updated_count += 1;
+            }
+        }
+        
+        Ok(updated_count)
     }
     
     async fn save(&self) -> anyhow::Result<()> {
@@ -206,7 +243,7 @@ struct SubscriptionData {
     servers: HashMap<String, Server>,
 }
 
-fn base64_decode(input: &str) -> String {
+fn base64_decode(input: &str) -> Result<String, String> {
     use base64::{Engine as _, engine::general_purpose};
     
     let cleaned = input
@@ -225,7 +262,7 @@ fn base64_decode(input: &str) -> String {
     general_purpose::STANDARD
         .decode(padded)
         .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
-        .unwrap_or_default()
+        .map_err(|e| format!("Base64 decode error: {}", e))
 }
 
 fn parse_subscription_content(content: &str, subscription_id: &str) -> Vec<Server> {
@@ -255,14 +292,14 @@ fn parse_proxy_url(url: &str, subscription_id: &str, index: usize) -> Option<Ser
 
 fn parse_vmess(url: &str, subscription_id: &str, _index: usize) -> Option<Server> {
     let encoded = url.strip_prefix("vmess://")?;
-    let json = base64_decode(encoded);
+    let json = base64_decode(encoded).ok()?;
     let config: serde_json::Value = serde_json::from_str(&json).ok()?;
     
     Some(Server {
         id: uuid::Uuid::new_v4().to_string(),
         name: config.get("ps")?.as_str()?.to_string(),
         address: config.get("add")?.as_str()?.to_string(),
-        port: config.get("port")?.as_str()?.parse().ok()?,
+        port: config.get("port")?.as_u64()? as u16,
         protocol: "vmess".to_string(),
         subscription_id: subscription_id.to_string(),
         config,
@@ -272,21 +309,21 @@ fn parse_vmess(url: &str, subscription_id: &str, _index: usize) -> Option<Server
 fn parse_vless(url: &str, subscription_id: &str, index: usize) -> Option<Server> {
     let url_without_prefix = url.strip_prefix("vless://")?;
     let parts: Vec<&str> = url_without_prefix.split('?').collect();
-    let userinfo_host: Vec<&str> = parts.get(0)?.split('@').collect();
+    let userinfo_host: Vec<&str> = parts.first()?.split('@').collect();
     
     let (uuid, host_port) = (
-        userinfo_host.get(0)?,
+        userinfo_host.first()?,
         userinfo_host.get(1)?
     );
     
     let host_port_parts: Vec<&str> = host_port.split(':').collect();
     let (host, port) = (
-        host_port_parts.get(0)?.to_string(),
+        host_port_parts.first()?.to_string(),
         host_port_parts.get(1)?.parse::<u16>().ok()?
     );
     
     let name = url.split('#').nth(1)
-        .map(|s| urlencoding_decode(s))
+        .map(urlencoding_decode)
         .unwrap_or_else(|| format!("Server {}", index + 1));
     
     Some(Server {
@@ -306,21 +343,21 @@ fn parse_vless(url: &str, subscription_id: &str, index: usize) -> Option<Server>
 fn parse_trojan(url: &str, subscription_id: &str, index: usize) -> Option<Server> {
     let url_without_prefix = url.strip_prefix("trojan://")?;
     let parts: Vec<&str> = url_without_prefix.split('?').collect();
-    let userinfo_host: Vec<&str> = parts.get(0)?.split('@').collect();
+    let userinfo_host: Vec<&str> = parts.first()?.split('@').collect();
     
     let (password, host_port) = (
-        userinfo_host.get(0)?,
+        userinfo_host.first()?,
         userinfo_host.get(1)?
     );
     
     let host_port_parts: Vec<&str> = host_port.split(':').collect();
     let (host, port) = (
-        host_port_parts.get(0)?.to_string(),
+        host_port_parts.first()?.to_string(),
         host_port_parts.get(1)?.parse::<u16>().ok()?
     );
     
     let name = url.split('#').nth(1)
-        .map(|s| urlencoding_decode(s))
+        .map(urlencoding_decode)
         .unwrap_or_else(|| format!("Server {}", index + 1));
     
     Some(Server {
@@ -341,26 +378,26 @@ fn parse_shadowsocks(url: &str, subscription_id: &str, index: usize) -> Option<S
     
     let (encoded_part, name) = if url_without_prefix.contains('#') {
         let parts: Vec<&str> = url_without_prefix.splitn(2, '#').collect();
-        (*parts.get(0)?, urlencoding_decode(parts.get(1)?))
+        (*parts.first()?, urlencoding_decode(parts.get(1)?))
     } else {
         (url_without_prefix, format!("Server {}", index + 1))
     };
     
-    let decoded = base64_decode(encoded_part);
+    let decoded = base64_decode(encoded_part).ok()?;
     let parts: Vec<&str> = decoded.split('@').collect();
     
-    let method_password: Vec<&str> = parts.get(0)?.split(':').collect();
+    let method_password: Vec<&str> = parts.first()?.split(':').collect();
     let host_port: Vec<&str> = parts.get(1)?.split(':').collect();
     
     Some(Server {
         id: uuid::Uuid::new_v4().to_string(),
         name,
-        address: host_port.get(0)?.to_string(),
+        address: host_port.first()?.to_string(),
         port: host_port.get(1)?.parse().ok()?,
         protocol: "shadowsocks".to_string(),
         subscription_id: subscription_id.to_string(),
         config: serde_json::json!({
-            "method": method_password.get(0)?,
+            "method": method_password.first()?,
             "password": method_password.get(1)?,
         }),
     })

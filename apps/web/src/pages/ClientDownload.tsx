@@ -122,16 +122,53 @@ export default function ClientDownload() {
     setModalVisible(true)
   }
 
-  const copySubscriptionUrl = (format: string = 'clash') => {
+  const copySubscriptionUrl = async (format: string = 'clash') => {
     if (!subscriptionToken) {
       message.error(t('clientDownload.copyFailed'))
       return
     }
+
     try {
-      const url = `${window.location.origin}/api/subscription?token=${subscriptionToken.token}&format=${format}`
-      navigator.clipboard.writeText(url)
-      message.success(t('clientDownload.copied'))
+      let urlPath: string
+      switch (format) {
+        case 'clash':
+          urlPath = subscriptionToken.clashUrl
+          break
+        case 'v2ray':
+        case 'vmess':
+          urlPath = subscriptionToken.v2rayUrl
+          break
+        default:
+          urlPath = subscriptionToken.clashUrl
+      }
+      
+      const url = `${window.location.origin}${urlPath}`
+
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url)
+        message.success(t('clientDownload.copied'))
+        return
+      }
+
+      const textArea = document.createElement('textarea')
+      textArea.value = url
+      textArea.style.position = 'fixed'
+      textArea.style.left = '-999999px'
+      textArea.style.top = '-999999px'
+      document.body.appendChild(textArea)
+      textArea.focus()
+      textArea.select()
+
+      const successful = document.execCommand('copy')
+      document.body.removeChild(textArea)
+
+      if (successful) {
+        message.success(t('clientDownload.copied'))
+      } else {
+        message.error(t('clientDownload.copyFailed'))
+      }
     } catch (e) {
+      console.error('Copy failed:', e)
       message.error(t('clientDownload.copyFailed'))
     }
   }

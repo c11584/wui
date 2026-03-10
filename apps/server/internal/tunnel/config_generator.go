@@ -251,6 +251,19 @@ func (g *ConfigGenerator) generateOutbound(outbound *models.Outbound) (*Outbound
 			},
 		}
 
+	case "socks5", "socks":
+		out.Protocol = "socks"
+		out.Settings["servers"] = []map[string]interface{}{
+			{
+				"address": outbound.Address,
+				"port":    outbound.Port,
+			},
+		}
+
+	case "freedom", "direct":
+		out.Protocol = "freedom"
+		out.Settings = map[string]interface{}{}
+
 	default:
 		return nil, fmt.Errorf("unsupported outbound protocol: %s", outbound.Protocol)
 	}

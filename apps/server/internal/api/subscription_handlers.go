@@ -13,14 +13,54 @@ import (
 )
 
 func (s *Server) handleGetSubscription(c *gin.Context) {
-	userID := c.GetUint("userId")
+	token := c.Query("token")
+	if token == "" {
+		c.JSON(http.StatusUnauthorized, ErrorResponse("token is required"))
+		return
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, ErrorResponse("invalid token"))
+		return
+	}
+
+	parts := strings.Split(string(decoded), ":")
+	if len(parts) != 2 {
+		c.JSON(http.StatusUnauthorized, ErrorResponse("invalid token format"))
+		return
+	}
+
+	userID, err := strconv.ParseUint(parts[0], 10, 32)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, ErrorResponse("invalid user ID"))
+		return
+	}
+
 	format := c.Query("format")
 	if format == "" {
 		format = "clash"
 	}
 
 	var tunnels []models.Tunnel
-	s.db.Preload("Outbounds").Where("user_id = ? AND enabled = ?", userID, true).Find(&tunnels)
+	result := s.db.Preload("Outbounds").Where("user_id = ? AND enabled = ?", userID, true).Find(&tunnels)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse(fmt.Sprintf("database query failed: %v", result.Error)))
+		return
+	}
+
+	fmt.Printf("[DEBUG] Found %d tunnels for user %d\n", len(tunnels), userID)
+	for i := range tunnels {
+		fmt.Printf("[DEBUG] Tunnel %d: %s, Outbounds: %d\n", tunnels[i].ID, tunnels[i].Name, len(tunnels[i].Outbounds))
+		for j := range tunnels[i].Outbounds {
+			fmt.Printf("[DEBUG]   - Outbound %d: %s, Protocol: %s, Address: %s:%d\n",
+				tunnels[i].Outbounds[j].ID,
+				tunnels[i].Outbounds[j].Name,
+				tunnels[i].Outbounds[j].Protocol,
+				tunnels[i].Outbounds[j].Address,
+				tunnels[i].Outbounds[j].Port)
+		}
+	}
 
 	switch format {
 	case "clash":
@@ -70,6 +110,23 @@ func (s *Server) generateClashConfig(c *gin.Context, tunnels []models.Tunnel) {
 	c.Data(http.StatusOK, "text/yaml", []byte(yaml))
 }
 
+func (s *Server) generateV2rayLinks(c *gin.Context, tunnels []models.Tunnel) {
+	var links []string
+
+	for _, tunnel := range tunnels {
+		for _, outbound := range tunnel.Outbounds {
+			link := s.outboundToV2rayLink(tunnel, outbound)
+			if link != "" {
+				links = append(links, link)
+			}
+		}
+	}
+
+	content := base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
+	c.Header("Content-Disposition", "attachment; filename=wui.txt")
+	c.Data(http.StatusOK, "text/plain", []byte(content))
+}
+
 func (s *Server) outboundToClashProxy(tunnel models.Tunnel, outbound models.Outbound) map[string]interface{} {
 	proxy := map[string]interface{}{
 		"name":   fmt.Sprintf("%s-%s", tunnel.Name, outbound.Name),
@@ -114,28 +171,13 @@ func (s *Server) outboundToClashProxy(tunnel models.Tunnel, outbound models.Outb
 		proxy["type"] = "socks5"
 	case "http":
 		proxy["type"] = "http"
+	case "direct":
+		return nil
 	default:
 		return nil
 	}
 
 	return proxy
-}
-
-func (s *Server) generateV2rayLinks(c *gin.Context, tunnels []models.Tunnel) {
-	var links []string
-
-	for _, tunnel := range tunnels {
-		for _, outbound := range tunnel.Outbounds {
-			link := s.outboundToV2rayLink(tunnel, outbound)
-			if link != "" {
-				links = append(links, link)
-			}
-		}
-	}
-
-	content := base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
-	c.Header("Content-Disposition", "attachment; filename=wui.txt")
-	c.Data(http.StatusOK, "text/plain", []byte(content))
 }
 
 func (s *Server) outboundToV2rayLink(tunnel models.Tunnel, outbound models.Outbound) string {

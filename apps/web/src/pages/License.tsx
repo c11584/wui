@@ -3,20 +3,23 @@ import { useTranslation } from 'react-i18next'
 import { Card, Button, Input, Form, message, Descriptions, Tag, Alert, Spin } from 'antd'
 import { KeyOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 
+import { useAuthStore } from '../stores/auth'
+
 interface LicenseInfo {
   isValid: boolean
-  message: string
-  type: string
-  plan: string
-  maxTunnels: number
-  maxUsers: number
-  maxTraffic: number
-  features: string
-  expiresAt: string
+  message?: string
+  type?: string
+  plan?: string
+  maxTunnels?: number
+  maxUsers?: number
+  maxTraffic?: number
+  features?: string
+  expiresAt?: string
 }
 
 export default function License() {
   const { t } = useTranslation()
+  const { token } = useAuthStore()
   const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [activating, setActivating] = useState(false)
@@ -26,66 +29,22 @@ export default function License() {
     fetchLicenseInfo()
   }, [])
 
-  const getToken = () => {
-    const authStorage = localStorage.getItem('auth-storage')
-    if (authStorage) {
-      try {
-        const { state } = JSON.parse(authStorage)
-        return state?.token || ''
-      } catch (e) {
-        return ''
-      }
-    }
-    return ''
-  }
-
   const fetchLicenseInfo = async () => {
     try {
-      const response = await fetch('/api/license/info', {
-        headers: {
-          'Authorization': `Bearer ${getToken()}`
-        }
-      })
-      const result = await response.json()
-      
-      if (result.data) {
-        setLicenseInfo(result.data)
+    const response = await fetch('/api/license/info', {
+      headers: {
+        'Authorization': `Bearer ${token}`
       }
-    } catch (error) {
-      console.error('Failed to fetch license info:', error)
-    } finally {
-      setLoading(false)
+    })
+    const result = await response.json()
+    
+    if (result.data) {
+      setLicenseInfo(result.data)
     }
-  }
-
-  const handleActivate = async (values: { licenseKey: string }) => {
-    setActivating(true)
-    try {
-      const response = await fetch('/api/license/activate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
-        },
-        body: JSON.stringify({
-          licenseKey: values.licenseKey,
-          instanceId: getInstanceId()
-        })
-      })
-
-      const result = await response.json()
-
-      if (result.valid || result.success) {
-        message.success(t('license.activateSuccess'))
-        setLicenseInfo(result.data)
-        form.resetFields()
-      } else {
-        message.error(result.message || t('license.activateError'))
-      }
     } catch (error) {
-      message.error(t('license.activateError'))
+    console.error('Failed to fetch license info:', error)
     } finally {
-      setActivating(false)
+    setLoading(false)
     }
   }
 
@@ -96,6 +55,87 @@ export default function License() {
       localStorage.setItem('wui-instance-id', instanceId)
     }
     return instanceId
+  }
+
+  const getErrorMessage = (result: any): string => {
+    if (result.code === 'LICENSE_IP_BANNED') {
+      const retryMinutes = Math.ceil((result.retryAfter || 3600) / 60)
+      return t('license.errors.ipBanned', { minutes: retryMinutes })
+    }
+    if (result.code === 'LICENSE_RATE_LIMIT') {
+      return t('license.errors.rateLimit', { remaining: result.remaining })
+    }
+    if (result.error === 'Invalid license key') {
+      let msg = t('license.errors.invalidKey')
+      if (result.remaining !== undefined && result.remaining > 0) {
+        msg += ` (${t('license.errors.attemptsRemaining', { count: result.remaining })})`
+      }
+      return msg
+    }
+    if (result.error === 'License key has been revoked') {
+      return t('license.errors.revoked')
+    }
+    if (result.error === 'License key has expired') {
+      return t('license.errors.expired')
+    }
+    if (result.error === 'License key is already used by another user') {
+      return t('license.errors.alreadyUsed')
+    }
+    return result.error || t('license.activateError')
+  }
+
+  const handleActivate = async (values: { licenseKey: string }) => {
+    setActivating(true)
+    try {
+    const response = await fetch('/api/license/activate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        licenseKey: values.licenseKey,
+        instanceId: getInstanceId()
+      })
+    })
+
+    const result = await response.json()
+
+    if (result.valid || result.success) {
+      message.success(t('license.activateSuccess'))
+      setLicenseInfo(result.data)
+      form.resetFields()
+    } else {
+      message.error(getErrorMessage(result))
+    }
+    } catch (error) {
+    message.error(t('license.activateError'))
+    } finally {
+    setActivating(false)
+    }
+  }
+
+  const handleDeactivate = async () => {
+    try {
+    const response = await fetch('/api/license/deactivate', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+
+    const result = await response.json()
+
+    if (result.success) {
+      message.success(t('license.deactivateSuccess'))
+      setLicenseInfo(null)
+      fetchLicenseInfo()
+    } else {
+      message.error(result.error || t('license.deactivateError'))
+    }
+    } catch (error) {
+    message.error(t('license.deactivateError'))
+    }
   }
 
   const formatBytes = (bytes: number) => {
@@ -139,12 +179,22 @@ export default function License() {
               {licenseInfo.maxUsers || 'Unlimited'}
             </Descriptions.Item>
             <Descriptions.Item label={t('license.maxTraffic')}>
-              {formatBytes(licenseInfo.maxTraffic)}
+              {formatBytes(licenseInfo.maxTraffic || 0)}
             </Descriptions.Item>
             <Descriptions.Item label={t('license.expiresAt')}>
               {licenseInfo.expiresAt ? new Date(licenseInfo.expiresAt).toLocaleDateString() : t('license.lifetime')}
             </Descriptions.Item>
           </Descriptions>
+
+          <div className="mt-4">
+            <Button 
+              danger 
+              onClick={handleDeactivate}
+              icon={<CloseCircleOutlined />}
+            >
+              {t('license.deactivate')}
+            </Button>
+          </div>
         </Card>
       ) : (
         <>

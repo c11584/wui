@@ -208,6 +208,18 @@ export default {
     visitWebsite: 'Visit our official website',
     contactSales: 'Contact our sales team',
     freeTrial: 'Apply for a free trial license',
+    deactivate: 'Deactivate License',
+    deactivateSuccess: 'License deactivated successfully',
+    deactivateError: 'Failed to deactivate license',
+    errors: {
+      invalidKey: 'Invalid license key',
+      revoked: 'License has been revoked',
+      expired: 'License has expired',
+      alreadyUsed: 'License is already in use',
+      rateLimit: 'Too many attempts. Please try again later',
+      ipBanned: 'Too many failed attempts. Your IP has been temporarily banned for {{minutes}} minutes',
+      attemptsRemaining: '{{count}} attempts remaining',
+    },
   },
   dashboard: {
     title: 'Dashboard',
